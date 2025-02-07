@@ -4,72 +4,67 @@
 
 #define FILENAME "orders.txt"
 
-typedef struct Order
-{
+typedef struct Order {
     char orderID[20];
     char customerName[50];
     char product[50];
     int quantity;
     float totalPrice;
     char status[20];
-    struct Order *next;
 } Order;
 
-typedef struct
-{
-    Order *front, *rear;
+typedef struct Node {
+    Order *order;
+    struct Node *next;
+} Node;
+
+typedef struct {
+    Node *front, *rear;
 } Queue;
 
-void initializeQueue(Queue *q)
-{
+void initializeQueue(Queue *q) {
     q->front = q->rear = NULL;
 }
 
-int isEmpty(Queue *q)
-{
+int isEmpty(Queue *q) {
     return q->front == NULL;
 }
 
 void enqueue(Queue *q, Order order)
 {
-    Order *newOrder = (Order *)malloc(sizeof(Order));
-    if (!newOrder)
+    Node *newNode = (Node *)malloc(sizeof(Node));
+    newNode->order = (Order *)malloc(sizeof(Order));
+    if (!newNode || !newNode->order)
     {
         printf("Khong the cap phat bo nho!\n");
         return;
     }
-    *newOrder = order;
-    strcpy(newOrder->status, "Dang xu ly"); // Mac dinh trang thai khi them moi
-    newOrder->next = NULL;
+    *(newNode->order) = order;
+    newNode->next = NULL;
+
     if (isEmpty(q))
     {
-        q->front = q->rear = newOrder;
+        q->front = q->rear = newNode;
     }
     else
     {
-        q->rear->next = newOrder;
-        q->rear = newOrder;
+        q->rear->next = newNode;
+        q->rear = newNode;
     }
 }
 
-Order dequeue(Queue *q)
-{
-    Order emptyOrder = {"", "", "", 0, 0.0, "", NULL};
-    if (isEmpty(q))
-    {
+Order dequeue(Queue *q) {
+    Order emptyOrder = {"", "", "", 0, 0.0, ""};
+    if (isEmpty(q)) {
         printf("Danh sach rong!\n");
         return emptyOrder;
     }
-    Order *temp = q->front;
-    if (strcmp(temp->status, "Da xu ly") == 0)
-    {
-        printf("Don hang da xu ly, khong the xoa!\n");
-        return emptyOrder;
-    }
-    Order removedOrder = *temp;
+    Node *temp = q->front;
+    Order removedOrder = *(temp->order);
     q->front = q->front->next;
     if (q->front == NULL)
         q->rear = NULL;
+    free(temp->order);
     free(temp);
     return removedOrder;
 }
@@ -81,24 +76,36 @@ void processOrder(Queue *q)
         printf("Danh sach rong!\n");
         return;
     }
-    Order *temp = q->front;
-    strcpy(temp->status, "Da xu ly");
-    printf("Don hang %s da duoc xu ly!\n", temp->orderID);
+
+    Node *temp = q->front;
+
+    // Tìm đơn hàng đầu tiên chưa được xử lý
+    while (temp && strcmp(temp->order->status, "Da xu ly") == 0)
+    {
+        temp = temp->next;
+    }
+
+    if (!temp)
+    {
+        printf("Tat ca don hang da xu ly!\n");
+        return;
+    }
+
+    // Xử lý đơn hàng chưa xử lý
+    strcpy(temp->order->status, "Da xu ly");
+    printf("Don hang %s da duoc xu ly!\n", temp->order->orderID);
 }
 
-void displayQueue(Queue *q)
-{
-    if (isEmpty(q))
-    {
+void displayQueue(Queue *q) {
+    if (isEmpty(q)) {
         printf("Danh sach rong!\n");
         return;
     }
     printf("Danh sach don hang:\n");
-    Order *temp = q->front;
-    while (temp)
-    {
+    Node *temp = q->front;
+    while (temp) {
         printf("Ma don: %s | Khach: %s | San pham: %s | So luong: %d | Tong gia: %.2f | Trang thai: %s\n",
-            temp->orderID, temp->customerName, temp->product, temp->quantity, temp->totalPrice, temp->status);
+            temp->order->orderID, temp->order->customerName, temp->order->product, temp->order->quantity, temp->order->totalPrice, temp->order->status);
         temp = temp->next;
     }
 }
@@ -110,8 +117,8 @@ void cancelOrder(Queue *q, char *orderID)
         printf("Danh sach rong!\n");
         return;
     }
-    Order *temp = q->front, *prev = NULL;
-    while (temp && strcmp(temp->orderID, orderID) != 0)
+    Node *temp = q->front, *prev = NULL;
+    while (temp && strcmp(temp->order->orderID, orderID) != 0)
     {
         prev = temp;
         temp = temp->next;
@@ -121,7 +128,7 @@ void cancelOrder(Queue *q, char *orderID)
         printf("Khong tim thay ma don %s!\n", orderID);
         return;
     }
-    if (strcmp(temp->status, "Da xu ly") == 0)
+    if (strcmp(temp->order->status, "Da xu ly") == 0)
     {
         printf("Don hang %s da xu ly, khong the huy!\n", orderID);
         return;
@@ -132,6 +139,7 @@ void cancelOrder(Queue *q, char *orderID)
         prev->next = temp->next;
     if (temp == q->rear)
         q->rear = prev;
+    free(temp->order);
     free(temp);
     printf("Da huy don hang %s!\n", orderID);
 }
@@ -144,11 +152,12 @@ void saveToFile(Queue *q)
         printf("Loi mo file!\n");
         return;
     }
-    Order *temp = q->front;
+    Node *temp = q->front;
     while (temp)
     {
         fprintf(file, "%s %s %s %d %.2f %s\n",
-                temp->orderID, temp->customerName, temp->product, temp->quantity, temp->totalPrice, temp->status);
+                temp->order->orderID, temp->order->customerName, temp->order->product,
+                temp->order->quantity, temp->order->totalPrice, temp->order->status);
         temp = temp->next;
     }
     fclose(file);
@@ -159,10 +168,20 @@ void loadFromFile(Queue *q)
     FILE *file = fopen(FILENAME, "r");
     if (!file)
         return;
-    Order order;
-    while (fscanf(file, "%s %s %s %d %f %s", order.orderID, order.customerName, order.product, &order.quantity, &order.totalPrice, order.status) == 6)
+
+    while (!feof(file))
     {
-        enqueue(q, order);
+        Order *order = (Order *)malloc(sizeof(Order));
+        if (fscanf(file, "%s %s %s %d %f %[^\n]", 
+                order->orderID, order->customerName, order->product, 
+                &order->quantity, &order->totalPrice, order->status) == 6)
+        {
+            enqueue(q, *order);
+        }
+        else
+        {
+            free(order);
+        }
     }
     fclose(file);
 }
@@ -192,14 +211,25 @@ int main()
         case 1:
             printf("Nhap ma don: ");
             scanf("%s", order.orderID);
+            getchar();  // Xóa ký tự '\n' còn lại trong bộ đệm
+
             printf("Nhap ten khach: ");
-            scanf("%s", order.customerName);
+            fgets(order.customerName, sizeof(order.customerName), stdin);
+            order.customerName[strcspn(order.customerName, "\n")] = '\0';
+
             printf("Nhap san pham: ");
-            scanf("%s", order.product);
+            fgets(order.product, sizeof(order.product), stdin);
+            order.product[strcspn(order.product, "\n")] = '\0'; 
+
             printf("Nhap so luong: ");
             scanf("%d", &order.quantity);
+
             printf("Nhap tong gia: ");
             scanf("%f", &order.totalPrice);
+            getchar();
+
+            strcpy(order.status, "Dang xu ly");
+
             enqueue(&q, order);
             saveToFile(&q);
             break;
